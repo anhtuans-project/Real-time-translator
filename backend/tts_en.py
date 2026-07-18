@@ -15,9 +15,14 @@ class PiperTTSEngine(TTSEngine):
         self.voice = None
 
         try:
-            from piper.voice import PiperVoice
+            # piper1-gpl (OHF-Voice): `from piper import PiperVoice`.
+            # rhasspy cũ dùng `from piper.voice import PiperVoice` — đã archive.
+            from piper import PiperVoice
             self.voice = PiperVoice.load(model_path)
-            self._native_sr = self.voice.config.sample_rate
+            try:
+                self._native_sr = self.voice.config.sample_rate
+            except Exception:
+                self._native_sr = 22050  # fallback; thực tế dùng audio_chunk.sample_rate
             print(f"Successfully loaded Piper TTS model: {model_path}")
         except Exception as e:
             print(f"Warning: Could not load Piper model from {model_path}: {e}")

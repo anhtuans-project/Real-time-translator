@@ -25,6 +25,12 @@ export function useTranslatorSocket(sessionId: string) {
   const retryCountRef = useRef(0);
   const currentSessionIdRef = useRef(sessionId);
 
+  // TTS audio playback (PCM16 streamed from backend).
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const nextStartRef = useRef(0);              // gapless scheduling time
+  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const ttsSampleRateRef = useRef(48000);
+
 
   // Keep refs up-to-date without triggering re-renders/reconnections
 
@@ -44,6 +50,48 @@ export function useTranslatorSocket(sessionId: string) {
       retryTimerRef.current = null;
     }
   }, []);
+
+  // Lazily create/replace the AudioContext so it matches the TTS sample rate.
+  const ensureCtx = useCallback((sr: number) => {
+    if (!audioCtxRef.current || audioCtxRef.current.sampleRate !== sr) {
+      audioCtxRef.current?.close().catch(() => {});
+      audioCtxRef.current = new AudioContext({ sampleRate: sr });
+      nextStartRef.current = 0;
+      activeSourcesRef.current = [];
+    }
+    return audioCtxRef.current;
+  }, []);
+
+  // Interrupt any currently-playing/pending TTS audio (called on each tts_start).
+  const stopAllSources = useCallback(() => {
+    activeSourcesRef.current.forEach(s => {
+      try { s.stop(); } catch { /* already ended */ }
+    });
+    activeSourcesRef.current = [];
+    nextStartRef.current = 0;
+  }, []);
+
+  // Decode Int16 PCM -> Float32, schedule gaplessly via AudioBufferSourceNode.
+  const playPcm = useCallback((buf: ArrayBuffer) => {
+    const sr = ttsSampleRateRef.current;
+    const ctx = ensureCtx(sr);
+    const i16 = new Int16Array(buf);
+    if (i16.length === 0) return;
+    const f32 = new Float32Array(i16.length);
+    for (let i = 0; i < i16.length; i++) f32[i] = i16[i] / 32768;
+    const audioBuf = ctx.createBuffer(1, f32.length, sr);
+    audioBuf.copyToChannel(f32, 0);
+    const src = ctx.createBufferSource();
+    src.buffer = audioBuf;
+    src.connect(ctx.destination);
+    const start = Math.max(ctx.currentTime, nextStartRef.current);
+    src.start(start);
+    nextStartRef.current = start + audioBuf.duration;
+    activeSourcesRef.current.push(src);
+    src.onended = () => {
+      activeSourcesRef.current = activeSourcesRef.current.filter(s => s !== src);
+    };
+  }, [ensureCtx]);
 
   const connect = useCallback(() => {
     // Guard: if sessionId changed while retrying, don't connect with old ID
@@ -90,6 +138,11 @@ export function useTranslatorSocket(sessionId: string) {
     };
 
     ws.onmessage = (event) => {
+      // Binary frame = PCM16 TTS audio from the backend.
+      if (event.data instanceof ArrayBuffer) {
+        playPcm(event.data);
+        return;
+      }
       try {
         const data = JSON.parse(event.data as string);
         switch (data.type) {
@@ -123,6 +176,17 @@ export function useTranslatorSocket(sessionId: string) {
               u.uttId === data.utt_id ? { ...u, targetReady: true } : u
             ));
             break;
+          case 'tts_start':
+            // New utterance audio: interrupt any pending playback, (re)create ctx
+            // at the engine sample rate, and resume (browsers suspend w/o gesture).
+            ttsSampleRateRef.current = data.sample_rate || 48000;
+            ensureCtx(ttsSampleRateRef.current);
+            stopAllSources();
+            audioCtxRef.current?.resume().catch(() => {});
+            break;
+          case 'tts_end':
+            // Sources self-stop; nothing to do.
+            break;
           case 'status':
             setStatus(data.state);
             break;
@@ -131,7 +195,7 @@ export function useTranslatorSocket(sessionId: string) {
         console.error("Error parsing WS message", e);
       }
     };
-  }, [sessionId, flushPending, clearRetryTimer]);
+  }, [sessionId, flushPending, clearRetryTimer, ensureCtx, stopAllSources, playPcm]);
 
   useEffect(() => {
     currentSessionIdRef.current = sessionId;

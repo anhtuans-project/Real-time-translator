@@ -250,6 +250,10 @@ class SessionState:
         Serialized by self._pipeline_lock: chỉ 1 utterance finalize+MT tại lúc
         (shared ASR engine + CPU contention + Ollama single-model queue).
         """
+        # Phase 1 (locked): ASR finalize + MT + push text. Chỉ 1 utterance tại lúc
+        # (shared ASR engine + CPU contention + Ollama single-model queue).
+        tts_text = ""
+        tts_utt_id = utt_id
         async with self._pipeline_lock:
             try:
                 logger.info("[%s] _finalize_and_pipeline starting (utt_id=%s, %d bytes)",
@@ -272,6 +276,7 @@ class SessionState:
                     return
 
                 utt_id = utt_id or self._current_utt_id or str(uuid.uuid4())
+                tts_utt_id = utt_id
 
                 # Track utterance in state
                 self.utterances[utt_id] = {
@@ -316,9 +321,40 @@ class SessionState:
                     "utt_id": utt_id,
                     "full_text": accumulated_translation
                 })
+                tts_text = accumulated_translation
 
             except Exception as e:
                 logger.exception("[%s] Pipeline failure: %s", self.session_id, e)
+                return
+
+        # Phase 2 (unlocked): TTS stream. Chạy ngoài lock để utterance kế tiếp không
+        # phải chờ synth xong; frontend tự interrupt audio chồng nhau trên mỗi tts_start.
+        if tts_text.strip():
+            await self._synthesize_and_stream_tts(tts_utt_id, tts_text)
+
+    async def _synthesize_and_stream_tts(self, utt_id: str, text: str):
+        """Synthesize the translation text with Piper and stream PCM16 to the client."""
+        tts_engine = self.engines.tts.get(self.target_lang)
+        if tts_engine is None:
+            return
+        try:
+            await self.manager.push(self.session_id, {
+                "type": "tts_start",
+                "utt_id": utt_id,
+                "sample_rate": tts_engine.sample_rate,
+            })
+            t_tts = time.perf_counter()
+            n_chunks = 0
+            async for pcm in tts_engine.stream_pcm16(text):
+                await self.manager.push_bytes(self.session_id, pcm)
+                n_chunks += 1
+            tts_ms = (time.perf_counter() - t_tts) * 1000
+            logger.info("[%s] TTS complete (%.2fms, %d chunks, %d chars)",
+                        self.session_id, tts_ms, n_chunks, len(text))
+        except Exception as e:
+            logger.exception("[%s] TTS failure: %s", self.session_id, e)
+        finally:
+            await self.manager.push(self.session_id, {"type": "tts_end", "utt_id": utt_id})
 
     async def shutdown(self):
         self._cancel_partial_translation()
