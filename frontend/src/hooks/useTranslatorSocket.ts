@@ -8,7 +8,9 @@ type Utterance = {
   targetReady: boolean;
 };
 
-const WS_BASE_URL = 'ws://localhost:8000';
+const WS_BASE_URL = window.location.protocol === 'https:'
+  ? `wss://${window.location.host}`
+  : `ws://${window.location.host}`;
 const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_RETRY_DELAY_MS = 30000;
 // Gapless TTS queue: chỉ interrupt playback khi TTS tụt sau hơn ngưỡng này (giây)

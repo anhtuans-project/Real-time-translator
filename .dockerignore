@@ -1,0 +1,37 @@
+# Git
+.git
+.github
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Environments
+.env
+.venv
+venv
+ENV/
+
+# Python caching & artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Frontend dependencies and builds
+**/node_modules/
+frontend/dist/
+frontend/build/
+.oxlintrc.json
+
+# Large model files (these are downloaded inside the Docker build to avoid bloating build context)
+backend/models/*.onnx
+backend/models/*.onnx.json
+
+# Miscellaneous
+README.md
+colab_asr_gpu.ipynb
+test_backend_local.py

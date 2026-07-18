@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from .connection_manager import ConnectionManager
 from .engine_factory import build_engines, Engines
 from .session_state import SessionState
@@ -100,6 +102,15 @@ async def ws_endpoint(websocket: WebSocket, session_id: str):
             sessions.pop(session_id, None)
         await session.shutdown()
         manager.disconnect(session_id, websocket)
+
+# Serve frontend static files if dist directory exists
+frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+if frontend_dist.exists():
+    app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+    
+    @app.get("/{catchall:path}")
+    async def read_index(catchall: str):
+        return FileResponse(frontend_dist / "index.html")
 
 if __name__ == "__main__":
     import uvicorn
