@@ -83,7 +83,7 @@ class OllamaTranslationEngine(MTEngine):
         parts.append(
             f"Translate the following {s_name} sentence into {t_name}. "
             f"Output only the {t_name} translation, nothing else.\n\n"
-            f"{s_name}: {text}"
+            f"{text}"
         )
         user_text = "\n\n".join(parts)
 

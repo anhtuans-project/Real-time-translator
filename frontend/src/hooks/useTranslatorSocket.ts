@@ -11,6 +11,9 @@ type Utterance = {
 const WS_BASE_URL = 'ws://localhost:8000';
 const INITIAL_RETRY_DELAY_MS = 500;
 const MAX_RETRY_DELAY_MS = 30000;
+// Gapless TTS queue: chỉ interrupt playback khi TTS tụt sau hơn ngưỡng này (giây)
+// — nói liên tục nhanh hơn TTS thì cắt bớt để resync, không thì để đọc hết từng câu.
+const TTS_BACKLOG_MAX_S = 6;
 
 export function useTranslatorSocket(sessionId: string) {
   const wsRef = useRef<WebSocket | null>(null);
@@ -132,6 +135,13 @@ export function useTranslatorSocket(sessionId: string) {
     ws.onclose = (ev) => {
       console.log(`[WS] Disconnected (code=${ev.code}, reason=${ev.reason})`);
       setWsConnected(false);
+      // code 1000 = close chủ ý (unmount/StrictMode cleanup, hoặc backend supersede
+      // khi WS mới cùng session_id đến). KHÔNG reconnect — reconnect ở đây sẽ tạo WS
+      // mới -> lại bị supersede -> loop vô hạn (2→3→4... WS). Chỉ reconnect khi drop
+      // bất thường (1006 network / 1011 server restart / etc.).
+      if (ev.code === 1000) {
+        return;
+      }
       setErrorMessage('Mất kết nối tới server, đang thử lại…');
       // Schedule reconnect with exponential backoff
       const delay = Math.min(
@@ -200,11 +210,20 @@ export function useTranslatorSocket(sessionId: string) {
             ));
             break;
           case 'tts_start':
-            // New utterance audio: interrupt any pending playback, (re)create ctx
-            // at the engine sample rate, and resume (browsers suspend w/o gesture).
+            // Gapless queue: để TTS đọc hết câu N rồi mới sang câu N+1 (không cắt
+            // giữa chừng). Chỉ interrupt (stopAllSources + resync) khi backlog quá
+            // lớn (TTS tụt sau > TTS_BACKLOG_MAX_S) — vd nói liên tục nhanh hơn TTS,
+            // lúc đó cắt bớt để không tích tụ lag 30s. nextStartRef persist qua utterance
+            // (ensureCtx chỉ reset khi sample rate đổi) -> PCM câu mới schedule sau câu cũ.
             ttsSampleRateRef.current = data.sample_rate || 48000;
             ensureCtx(ttsSampleRateRef.current);
-            stopAllSources();
+            {
+              const ctx = audioCtxRef.current;
+              const backlog = ctx ? (nextStartRef.current - ctx.currentTime) : 0;
+              if (backlog > TTS_BACKLOG_MAX_S) {
+                stopAllSources();   // catch up: drop queued audio, schedule fresh
+              }
+            }
             audioCtxRef.current?.resume().catch(() => {});
             break;
           case 'tts_end':

@@ -3,6 +3,7 @@ import os
 import time
 import uuid
 import logging
+from collections import deque
 from .engine_factory import Engines
 from .connection_manager import ConnectionManager
 from .vad import VAD
@@ -46,6 +47,31 @@ ASR_PROMPT_MAX_WORDS = int(os.getenv("ASR_PROMPT_MAX_WORDS", "6"))
 # (default 0.0 -> pass). Tune qua env sau khi xem log distribution.
 ASR_PARTIAL_MIN_LOGPROB = float(os.getenv("ASR_PARTIAL_MIN_LOGPROB", "-1.0"))
 
+# Phase 5+: final anti-hallucination mở rộng. Whisper có prior cực mạnh về boilerplate
+# YouTube (các kênh / "subscribe" / "cảm ơn các bạn đã theo dõi" / "thank you for watching")
+# — trên silence/low-info audio nó default ra mấy câu này kể cả khi không nói. vad_filter +
+# confidence guard không bắt được vì Whisper "tự tin" về hallucination của nó. Guard này
+# drop final chứa marker boilerplate (default ON, tắt qua env ASR_BOILERPLATE_GUARD=0).
+# + repeat guard: drop final trùng một final GẦN ĐÂY (last REPEAT_WINDOW), không chỉ liền
+# trước — bắt recurring boilerplate lặp lại nhiều lần. Chỉ áp final dài (>=4 words) để
+# miễn short legit repeats ("ok", "hello").
+ASR_BOILERPLATE_GUARD = os.getenv("ASR_BOILERPLATE_GUARD", "1") == "1"
+ASR_REPEAT_WINDOW = int(os.getenv("ASR_REPEAT_WINDOW", "8"))
+ASR_REPEAT_MIN_WORDS = int(os.getenv("ASR_REPEAT_MIN_WORDS", "4"))
+BOILERPLATE_MARKERS = (
+    # Vietnamese YouTube outro/intro boilerplate (Whisper prior). Dùng phrase đủ dài để
+    # tránh false-positive với speech thật (vd không dùng "hẹn gặp lại" riêng vì là câu
+    # chào tạm biệt hợp lệ; "cảm ơn các bạn đã theo dội" đã bao hàm ý outro).
+    "cảm ơn các bạn đã theo dõi", "hãy đăng ký kênh", "đăng ký kênh để",
+    "hãy subscribe", "subscribe cho kênh", "không bỏ lỡ những video",
+    # Tên kênh cụ thể — nếu user không đang nói tới thì 100% hallucination
+    "ghiền mì gõ", "ghiền mi go", "la la school", "lalaschool", "la la scho",
+    # English YouTube boilerplate
+    "thank you for watching", "thanks for watching",
+    "like and subscribe", "don't forget to like", "don't forget to subscribe",
+    "see you in the next", "subscribe to my channel", "subscribe to the channel",
+)
+
 
 class SessionState:
     def __init__(self, session_id: str, manager: ConnectionManager, engines: Engines, languages: tuple[str, ...]):
@@ -84,6 +110,8 @@ class SessionState:
 
         # Phase 4e: prompt reuse hook (OFF mặc định — xem ASR_PROMPT_REUSE).
         self._last_final_text = ""
+        # Phase 5+: rolling window các final gần đây để drop repeat hallucination.
+        self._recent_finals: deque[str] = deque(maxlen=ASR_REPEAT_WINDOW)
 
         # Partial translation preview: dịch partial transcript trong lúc nói
         # (debounce + cancel-in-flight) -> UI hiện bản dịch dần, chốt ở utterance_end.
@@ -105,6 +133,9 @@ class SessionState:
         # chỉ quan trọng trong utt (đã preserve). Trước đây 1 lock bao cả ASR+MT
         # làm ASR finalize utterance N+1 phải chờ MT utterance N xong.
         self._asr_lock = asyncio.Lock()
+        # Guard idempotent cho shutdown: ws_endpoint gọi shutdown 2 lần (supersede +
+        # finally của WS cũ) không double-cancel / double-finalize.
+        self._shutdown = False
 
         # Phase 5d: rolling latency metrics (keep last 50 mỗi loại) + push週期 5s.
         self._metric_asr: list[float] = []
@@ -507,19 +538,32 @@ class SessionState:
                                 self.session_id, res.no_speech_prob, res.avg_logprob, final_text[:80])
                     return
 
-                # Drop Whisper trailing-audio hallucination: khi đoạn nhạc/junk ở cuối
-                # bị VAD nhặt thành utterance mới, Whisper thường bidiện ra câu giống
-                # utterance trước (decoder loop trên audio low-info). Bỏ qua final
-                # trùng y hệt utterance liền trước — self-repetition hợp lệ liên tiếp
-                # là cực hiếm nên an toàn.
-                if self.utterances:
-                    last_text = list(self.utterances.values())[-1].get("text", "")
-                    if last_text and final_text.strip() == last_text.strip():
-                        logger.info("[%s] Drop duplicate final (hallucination): %r",
+                # Phase 5+: boilerplate hallucination guard. Whisper default ra câu
+                # YouTube boilerplate ("subscribe cho kênh Ghiền Mì Gõ", "cảm ơn các bạn
+                # đã theo dõi...", "thank you for watching") trên silence/low-info audio,
+                # và nó "tự tin" nên confidence guard không bắt được. Drop final chứa marker
+                # — trong app dịch thực, user hiếm khi nói đúng mấy câu intro/outro YouTube.
+                if ASR_BOILERPLATE_GUARD:
+                    low = final_text.lower()
+                    if any(m in low for m in BOILERPLATE_MARKERS):
+                        logger.info("[%s] Drop boilerplate hallucination: %r",
+                                    self.session_id, final_text[:80])
+                        self._last_final_text = ""
+                        return
+
+                # Phase 5+: repeat guard (mở rộng từ duplicate liền trước). Drop final trùng
+                # một final trong REPEAT_WINDOW gần đây — bắt recurring boilerplate lặp lại
+                # nhiều lần (vd "subscribe Ghiền Mì Gõ" xuất hiện 6 lần). Chỉ áp final dài
+                # (>= ASR_REPEAT_MIN_WORDS) để miễn short legit repeats ("ok", "hello").
+                if len(final_text.split()) >= ASR_REPEAT_MIN_WORDS:
+                    norm = " ".join(final_text.lower().split())
+                    if norm in self._recent_finals:
+                        logger.info("[%s] Drop repeat final (hallucination): %r",
                                     self.session_id, final_text[:80])
                         self._last_final_text = ""   # clear để không reuse prompt gây repetition
                         return
                 self._last_final_text = final_text   # cho prompt reuse (OFF mặc định)
+                self._recent_finals.append(" ".join(final_text.lower().split()))
 
                 utt_id = utt_id or self._current_utt_id or str(uuid.uuid4())
                 final_utt_id = utt_id
@@ -615,11 +659,21 @@ class SessionState:
         finally:
             await self.manager.push(self.session_id, {"type": "tts_end", "utt_id": utt_id})
 
-    async def shutdown(self):
+    async def shutdown(self, finalize: bool = True):
+        # Idempotent: ws_endpoint gọi shutdown khi WS bị supersede (finalize=False,
+        # chỉ huỷ pipeline, không chạm ASR/MT chia sẻ) và lại gọi ở finally của WS cũ
+        # -> guard này ngăn double-cancel / double-finalize.
+        if self._shutdown:
+            return
+        self._shutdown = True
         self._cancel_partial_translation()
         if self._metrics_push_task and not self._metrics_push_task.done():
             self._metrics_push_task.cancel()
-        if self._asr_started:
+        # finalize=True (graceful disconnect): chốt nốt utterance đang dở (dùng ASR/MT
+        # chia sẻ). finalize=False (WS bị supersede bởi connection mới): bỏ qua — không
+        # chạm shared RemoteASR (tránh race với session mới) + không đẩy utterance rác
+        # của session cũ lên frontend mới.
+        if finalize and self._asr_started:
             logger.info("[%s] Shutdown: Finalizing pending utterance", self.session_id)
             utt_id = self._current_utt_id
             audio_bytes = self._asr_engine().snapshot_audio()

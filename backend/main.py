@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 # Global engines - loaded ONCE at startup
 engines: Engines | None = None
 manager = ConnectionManager()
+# Pipeline sống theo session_id: 1 session_id -> 1 SessionState. WS mới đến sẽ
+# supersede pipeline cũ (xem ws_endpoint) -> không bao giờ có 2 pipeline song song.
+sessions: dict[str, SessionState] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -49,7 +52,20 @@ async def ws_endpoint(websocket: WebSocket, session_id: str):
         await websocket.close(code=1011, reason="Server not ready")
         return
 
+    # Supersede: nếu session_id đã có pipeline sống (reload/StrictMode/reconnect để
+    # lại WS cũ), huỷ pipeline cũ TRƯỚC khi tạo mới. finalize=False -> không chạm
+    # shared RemoteASR/MT, không đẩy utterance rác lên frontend mới. manager.connect
+    # đã đóng WS cũ -> ws_endpoint cũ sẽ thoát và gọi shutdown() (idempotent, no-op).
+    old = sessions.get(session_id)
+    if old is not None:
+        logger.info("[%s] New WS supersedes existing session -> killing old pipeline.", session_id)
+        try:
+            await old.shutdown(finalize=False)
+        except Exception as e:
+            logger.warning("[%s] Old session shutdown error: %s", session_id, e)
+
     session = SessionState(session_id, manager, engines, languages=("vi", "en"))
+    sessions[session_id] = session
 
     chunk_count = 0
     try:
@@ -79,6 +95,9 @@ async def ws_endpoint(websocket: WebSocket, session_id: str):
     except WebSocketDisconnect:
         pass
     finally:
+        # Chỉ pop nếu session này vẫn là của mình (tránh xóa session mới hơn).
+        if sessions.get(session_id) is session:
+            sessions.pop(session_id, None)
         await session.shutdown()
         manager.disconnect(session_id, websocket)
 
