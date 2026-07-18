@@ -2,9 +2,8 @@ import asyncio
 import logging
 import numpy as np
 from pathlib import Path
-from typing import Tuple
 from concurrent.futures import ThreadPoolExecutor
-from .interfaces import ASREngine
+from .interfaces import ASREngine, ASRFinal, asr_final_from_segments
 
 logger = logging.getLogger("asr_english")
 
@@ -51,13 +50,18 @@ class EnglishASR(ASREngine):
             await self._mock.start_utterance()
 
     def _transcribe_in_thread(self, audio_bytes: bytes):
+        """Partials: greedy (temperature=0) cho latency."""
         try:
             audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             segments, _ = self.model.transcribe(
                 audio_data,
                 language="en",
                 task="transcribe",
-                beam_size=1
+                beam_size=1,
+                condition_on_previous_text=False,
+                hallucination_silence_threshold=2.0,
+                no_speech_threshold=0.6,
+                vad_filter=True,
             )
             text = " ".join(s.text.strip() for s in segments).strip()
             return text if text else None
@@ -137,25 +141,34 @@ class EnglishASR(ASREngine):
         self._transcribe_future = None
         return b
 
-    async def finalize(self, audio_bytes: bytes = b"") -> Tuple[str, str]:
-        """Transcribe snapshotted utterance audio, beam_size=1 for low latency."""
+    async def finalize(self, audio_bytes: bytes = b"", prompt: str = "") -> ASRFinal:
+        """Finalize: temperature fallback + thresholds (chống hallucinate); trả ASRFinal."""
         if self._mock:
             return await self._mock.finalize()
 
         if not audio_bytes:
-            return "", "en"
+            return ASRFinal(text="", lang="en")
 
         audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         loop = asyncio.get_event_loop()
-        segments, _ = await loop.run_in_executor(
-            None,
-            lambda: self.model.transcribe(
-                audio_data,
-                language="en",
-                task="transcribe",
-                beam_size=1
-            )
-        )
 
-        text = " ".join(s.text.strip() for s in segments).strip()
-        return text, "en"
+        def run():
+            kw = dict(
+                language="en", task="transcribe", beam_size=1,
+                condition_on_previous_text=False,
+                hallucination_silence_threshold=2.0,
+                no_speech_threshold=0.6, vad_filter=True,
+                temperature=[0.0, 0.2, 0.4],
+                compression_ratio_threshold=2.4, logprob_threshold=-1.0,
+            )
+            if prompt:
+                kw["initial_prompt"] = prompt
+            segments, _ = self.model.transcribe(audio_data, **kw)
+            return list(segments)
+
+        try:
+            segments = await loop.run_in_executor(None, run)
+        except Exception as e:
+            logger.error("Finalize transcription error: %s", e)
+            return ASRFinal(text="", lang="en")
+        return asr_final_from_segments(segments, "en")

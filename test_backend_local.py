@@ -127,13 +127,13 @@ class LatencyTracker:
     def on_partial(self, text):
         # partial_transcript KHÔNG có utt_id; gán cho speech segment gần nhất
         ms = self.now_ms()
-        self.tick("partial_transcript", text[:60])
+        self.tick("partial_transcript", text[:100])
         if self._current_partial_ms is None and self.speech_starts:
             self._current_partial_ms = ms
 
     def on_final(self, text, utt_id):
         ms = self.now_ms()
-        self.tick("final_transcript", text[:60])
+        self.tick("final_transcript", text[:100])
         speech_start = self.speech_starts.pop(0) if self.speech_starts else ms
         self.utterances[utt_id] = {
             "speech_start": speech_start,
@@ -157,7 +157,7 @@ class LatencyTracker:
         if u:
             u["done"] = self.now_ms()
             u["translation"] = full
-            self.tick("translation_done", full[:60])
+            self.tick("translation_done", full[:100])
 
     # ---- per-utterance metrics ----
     def utterance_metrics(self):
@@ -215,7 +215,7 @@ class LatencyTracker:
                 return f"{v:7.0f}" if v is not None else f"{'--':>7}"
             p(f"{i:<3} {fmt(r['vad_to_partial'])} {fmt(r['vad_to_final'])} {fmt(r['asr_finalize'])} "
               f"{fmt(r['final_to_first_token'])} {fmt(r['mt_stream'])} {fmt(r['translation_total'])} {fmt(r['end_to_end'])}  "
-              f"{r['text'][:40]}")
+              f"{r['text'][:90]}")
         p("-" * 78)
         p("(ms) VAD->p=VAD→partial  VAD->f=VAD→final  ASRfin=partial→final  "
           "F->tok=final→first token  MTstr=stream  MTtot=total  E2E=end-to-end")
@@ -403,7 +403,7 @@ async def main():
                 return f"{v:7.0f}" if v is not None else f"{'--':>7}"
             f.write(f"{i:<3} {fmt(r['vad_to_partial'])} {fmt(r['vad_to_final'])} {fmt(r['asr_finalize'])} "
                     f"{fmt(r['final_to_first_token'])} {fmt(r['mt_stream'])} {fmt(r['translation_total'])} {fmt(r['end_to_end'])}  "
-                    f"{r['text'][:40]}\n")
+                    f"{r['text'][:120]}\n")
 
         f.write("\n" + "=" * 78 + "\n")
         f.write("AGGREGATE (ms)\n")

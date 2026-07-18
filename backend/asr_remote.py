@@ -31,10 +31,11 @@ import asyncio
 import json
 import logging
 import os
+import random
 from collections import deque
 from typing import Tuple
 
-from .interfaces import ASREngine
+from .interfaces import ASREngine, ASRFinal
 
 logger = logging.getLogger("asr_remote")
 
@@ -42,6 +43,14 @@ CONNECT_TIMEOUT = 15  # seconds
 # beam_size=1 greedy: finalize ~2-5s với buffer 6s trên T4 (Colab transcribe cả buffer +
 # fallback về partial nếu rỗng). 30s headroom an toàn; nếu hang thì block tối đa 30s.
 FINALIZE_TIMEOUT = 30  # seconds
+
+# Phase 5a: bound send queue để memory không grow vô hạn khi GPU stall. 600 chunks
+# ~19s audio @ 32ms/chunk — đủ backlog cho blip ngắn, drop-oldest khi vượt (realtime
+# > completeness). RealtimeSTT dùng cùng思路 (allowed_latency_limit drop).
+SEND_QUEUE_MAX = int(os.getenv("ASR_SEND_QUEUE_MAX", "600"))
+# Phase 5b: reconnect backoff cap. 2^attempts giây (jittered) tới 30s, thử tối đa 8 lần.
+MAX_CONNECT_ATTEMPTS = int(os.getenv("ASR_CONNECT_MAX_ATTEMPTS", "8"))
+RECONNECT_MAX_DELAY = 30
 
 
 class RemoteASR(ASREngine):
@@ -51,7 +60,10 @@ class RemoteASR(ASREngine):
         if not self.url:
             raise RuntimeError("ASR_REMOTE_URL not set")
         self._ws = None
-        self._send_q: asyncio.Queue = asyncio.Queue()  # unbounded; never blocks producers
+        # Phase 5a: bounded send queue — drop-oldest khi đầy (realtime > completeness),
+        # drain stale trên disconnect để không flush audio cũ sang server mới.
+        self._send_q: asyncio.Queue = asyncio.Queue(maxsize=SEND_QUEUE_MAX)
+        self._stale_drop_count = 0
         self._writer_task: asyncio.Task | None = None
         self._reader_task: asyncio.Task | None = None
         self._connect_task: asyncio.Task | None = None
@@ -59,6 +71,9 @@ class RemoteASR(ASREngine):
         self._connected_event = asyncio.Event()
         self._result_callback = None
         self._pending_finals: deque = deque()
+        # Phase 5b: connection-state callbacks (engines shared across sessions → list).
+        # Mỗi SessionState đăng ký 1 async cb(state) để push asr_connection lên UI của nó.
+        self._state_callbacks = []
 
     # ---- connection (background, never blocks the loop) ----
 
@@ -74,22 +89,55 @@ class RemoteASR(ASREngine):
             # No running loop (shouldn't happen in our call sites)
             pass
 
+    def set_state_callback(self, cb) -> None:
+        """Register an async cb(state) for connection-state changes. Engines are
+        shared across sessions, so multiple sessions may register (each pushes to
+        its own UI). state ∈ {"connected","disconnected","reconnecting"}."""
+        self._state_callbacks.append(cb)
+
+    def _fire_state(self, state: str):
+        for cb in list(self._state_callbacks):
+            try:
+                asyncio.create_task(cb(state))
+            except Exception as e:
+                logger.warning("RemoteASR state callback error: %s", e)
+
     async def _do_connect(self):
+        # Phase 5b: reconnect với exponential backoff + jitter. Thử tối đa
+        # MAX_CONNECT_ATTEMPTS lần; mỗi lần fail -> "reconnecting" + sleep; success ->
+        # "connected" + reset; hết attempts -> "disconnected" (sẽ retry lần kế khi
+        # feed_audio/start_utterance gọi _ensure_connect_bg lại).
+        attempts = 0
         try:
-            import websockets
-            logger.info("RemoteASR connecting to %s ...", self.url)
-            ws = await asyncio.wait_for(
-                websockets.connect(self.url, max_size=None, ping_interval=20),
-                timeout=CONNECT_TIMEOUT,
-            )
-            self._ws = ws
-            self._connected = True
-            self._connected_event.set()
-            self._writer_task = asyncio.create_task(self._writer_loop())
-            self._reader_task = asyncio.create_task(self._reader_loop())
-            logger.info("RemoteASR connected (lang=%s).", self.lang)
-        except Exception as e:
-            logger.error("RemoteASR connect failed: %s", e)
+            while True:
+                try:
+                    import websockets
+                    logger.info("RemoteASR connecting to %s (attempt %d) ...",
+                                self.url, attempts + 1)
+                    ws = await asyncio.wait_for(
+                        websockets.connect(self.url, max_size=None, ping_interval=20),
+                        timeout=CONNECT_TIMEOUT,
+                    )
+                    self._ws = ws
+                    self._connected = True
+                    self._connected_event.set()
+                    self._writer_task = asyncio.create_task(self._writer_loop())
+                    self._reader_task = asyncio.create_task(self._reader_loop())
+                    self._fire_state("connected")
+                    logger.info("RemoteASR connected (lang=%s).", self.lang)
+                    return
+                except Exception as e:
+                    attempts += 1
+                    if attempts >= MAX_CONNECT_ATTEMPTS:
+                        logger.error("RemoteASR connect gave up after %d attempts: %s",
+                                     attempts, e)
+                        self._fire_state("disconnected")
+                        return
+                    delay = min(2 ** attempts, RECONNECT_MAX_DELAY) * (0.5 + random.random() * 0.5)
+                    logger.warning("RemoteASR connect failed (attempt %d): %s — retry in %.1fs",
+                                   attempts, e, delay)
+                    self._fire_state("reconnecting")
+                    await asyncio.sleep(delay)
         finally:
             self._connect_task = None
 
@@ -115,8 +163,48 @@ class RemoteASR(ASREngine):
         while self._pending_finals:
             fut = self._pending_finals.popleft()
             if not fut.done():
-                fut.set_result(("", self.lang))
+                fut.set_result(ASRFinal(text="", lang=self.lang))
+        # Phase 5a: drain stale queued audio/control để reconnect sau không flush
+        # 19s audio cũ sang server mới (gây transcribe sai/garble utterance đã qua).
+        drained = 0
+        while True:
+            try:
+                self._send_q.get_nowait()
+                drained += 1
+            except asyncio.QueueEmpty:
+                break
+        if drained:
+            logger.info("RemoteASR drained %d stale queued msgs on disconnect.", drained)
+        self._fire_state("disconnected")
         logger.warning("RemoteASR disconnected; will reconnect on next use.")
+
+    def _put(self, msg):
+        """put_nowait vào bounded _send_q; drop-oldest khi đầy (realtime > completeness).
+        Audio cũ bị drop thay vì chặn producer hay grow memory khi GPU stall."""
+        try:
+            self._send_q.put_nowait(msg)
+            return
+        except asyncio.QueueFull:
+            pass
+        try:
+            dropped = self._send_q.get_nowait()
+            self._stale_drop_count += 1
+            kind = "audio" if isinstance(dropped, (bytes, bytearray)) else "control"
+            if self._stale_drop_count <= 5 or self._stale_drop_count % 100 == 0:
+                logger.warning("RemoteASR send queue full, dropped %s msg (#%d total)",
+                               kind, self._stale_drop_count)
+        except asyncio.QueueEmpty:
+            pass
+        try:
+            self._send_q.put_nowait(msg)
+        except asyncio.QueueFull:
+            self._stale_drop_count += 1
+            logger.warning("RemoteASR send queue still full after drop; lost 1 msg (#%d)",
+                           self._stale_drop_count)
+
+    @property
+    def stale_drop_count(self) -> int:
+        return self._stale_drop_count
 
     # ---- writer / reader ----
 
@@ -148,8 +236,12 @@ class RemoteASR(ASREngine):
                 if t == "partial":
                     text = data.get("text", "")
                     if text and self._result_callback:
+                        # Phase 5+: forward confidence (Colab gửi kèm) để backend filter
+                        # hallucinated partial trên silence/low-info audio.
+                        lp = float(data.get("avg_logprob", 0.0))
+                        nsp = float(data.get("no_speech_prob", 0.0))
                         try:
-                            asyncio.create_task(self._result_callback(text))
+                            asyncio.create_task(self._result_callback(text, nsp, lp))
                         except Exception as e:
                             logger.error("RemoteASR partial callback error: %s", e)
                 elif t == "final":
@@ -159,7 +251,15 @@ class RemoteASR(ASREngine):
                         logger.warning("RemoteASR final without pending future")
                         continue
                     if not fut.done():
-                        fut.set_result((data.get("text", ""), data.get("lang", self.lang)))
+                        # Phase 4: Colab server gửi kèm confidence fields (forward-compat:
+                        # server cũ không gửi -> .get() default).
+                        fut.set_result(ASRFinal(
+                            text=data.get("text", ""),
+                            lang=data.get("lang", self.lang),
+                            avg_logprob=float(data.get("avg_logprob", 0.0)),
+                            no_speech_prob=float(data.get("no_speech_prob", 1.0)),
+                            compression_ratio=float(data.get("compression_ratio", 1.0)),
+                        ))
         except Exception as e:
             logger.warning("RemoteASR reader loop ended: %s", e)
         self._handle_disconnect()
@@ -168,12 +268,12 @@ class RemoteASR(ASREngine):
 
     async def start_utterance(self) -> None:
         self._ensure_connect_bg()
-        self._send_q.put_nowait(json.dumps({"action": "start", "lang": self.lang}))
+        self._put(json.dumps({"action": "start", "lang": self.lang}))
 
     async def feed_audio(self, pcm16_chunk: bytes) -> str | None:
         if not self._connected:
             self._ensure_connect_bg()
-        self._send_q.put_nowait(pcm16_chunk)
+        self._put(pcm16_chunk)
         return None
 
     def set_result_callback(self, callback) -> None:
@@ -186,18 +286,20 @@ class RemoteASR(ASREngine):
         loop = asyncio.get_event_loop()
         fut = loop.create_future()
         self._pending_finals.append(fut)
-        self._send_q.put_nowait(json.dumps({"action": "finalize"}))
+        self._put(json.dumps({"action": "finalize"}))
         return b""
 
-    async def finalize(self, audio_bytes: bytes = b"") -> Tuple[str, str]:
+    async def finalize(self, audio_bytes: bytes = b"", prompt: str = "") -> ASRFinal:
+        # prompt (init_prompt) không được thread sang Colab server (protocol chưa có);
+        # ship OFF mặc định nên prompt="" luôn. Hook sẵn cho follow-up.
         if not await self._ensure_connected_blocking():
             logger.error("RemoteASR not connected at finalize; returning empty.")
-            return "", self.lang
+            return ASRFinal(text="", lang=self.lang)
         if not self._pending_finals:
             loop = asyncio.get_event_loop()
             fut = loop.create_future()
             self._pending_finals.append(fut)
-            self._send_q.put_nowait(json.dumps({"action": "finalize"}))
+            self._put(json.dumps({"action": "finalize"}))
         fut = self._pending_finals[0]
         try:
             return await asyncio.wait_for(fut, timeout=FINALIZE_TIMEOUT)
@@ -207,4 +309,4 @@ class RemoteASR(ASREngine):
                 self._pending_finals.popleft()
             except IndexError:
                 pass
-            return "", self.lang
+            return ASRFinal(text="", lang=self.lang)

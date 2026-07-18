@@ -2,8 +2,7 @@ import asyncio
 import logging
 import numpy as np
 from pathlib import Path
-from typing import Tuple
-from .interfaces import ASREngine
+from .interfaces import ASREngine, ASRFinal, asr_final_from_segments
 
 logger = logging.getLogger("asr_vietnamese")
 
@@ -48,14 +47,18 @@ class VietnameseASR(ASREngine):
             await self._mock.start_utterance()
 
     def _transcribe_in_thread(self, audio_bytes: bytes):
-        """Runs in thread pool."""
+        """Runs in thread pool. Partials: greedy (temperature=0) cho latency."""
         try:
             audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
             segments, _ = self.model.transcribe(
                 audio_data,
                 language="vi",
                 task="transcribe",
-                beam_size=1
+                beam_size=1,
+                condition_on_previous_text=False,
+                hallucination_silence_threshold=2.0,
+                no_speech_threshold=0.6,
+                vad_filter=True,
             )
             text = " ".join(s.text.strip() for s in segments).strip()
             return text if text else None
@@ -154,29 +157,39 @@ class VietnameseASR(ASREngine):
         self._transcribe_future = None
         return b
 
-    async def finalize(self, audio_bytes: bytes = b"") -> Tuple[str, str]:
+    async def finalize(self, audio_bytes: bytes = b"", prompt: str = "") -> ASRFinal:
         """
         Transcribe the given (already snapshotted) utterance audio.
         Audio is snapshotted synchronously by snapshot_audio() to avoid races with
-        the next utterance. beam_size=1 for low latency on short chunks (realtime).
+        the next utterance. Finalize dùng temperature fallback + thresholds (chống
+        hallucinate/repetition); partials dùng greedy. Trả ASRFinal kèm confidence.
         """
         if self._mock:
             return await self._mock.finalize()
 
         if not audio_bytes:
-            return "", "vi"
+            return ASRFinal(text="", lang="vi")
 
         audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
         loop = asyncio.get_event_loop()
-        segments, _ = await loop.run_in_executor(
-            None,
-            lambda: self.model.transcribe(
-                audio_data,
-                language="vi",
-                task="transcribe",
-                beam_size=1
-            )
-        )
 
-        text = " ".join(s.text.strip() for s in segments).strip()
-        return text, "vi"
+        def run():
+            kw = dict(
+                language="vi", task="transcribe", beam_size=1,
+                condition_on_previous_text=False,
+                hallucination_silence_threshold=2.0,
+                no_speech_threshold=0.6, vad_filter=True,
+                temperature=[0.0, 0.2, 0.4],
+                compression_ratio_threshold=2.4, logprob_threshold=-1.0,
+            )
+            if prompt:
+                kw["initial_prompt"] = prompt
+            segments, _ = self.model.transcribe(audio_data, **kw)
+            return list(segments)
+
+        try:
+            segments = await loop.run_in_executor(None, run)
+        except Exception as e:
+            logger.error("Finalize transcription error: %s", e)
+            return ASRFinal(text="", lang="vi")
+        return asr_final_from_segments(segments, "vi")

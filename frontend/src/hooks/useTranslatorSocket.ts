@@ -15,10 +15,24 @@ const MAX_RETRY_DELAY_MS = 30000;
 export function useTranslatorSocket(sessionId: string) {
   const wsRef = useRef<WebSocket | null>(null);
   const [utterances, setUtterances] = useState<Utterance[]>([]);
-  const [currentPartial, setCurrentPartial] = useState('');
+  // LocalAgreement-2: confirmed prefix (solid, locked) + unstable suffix (italic, mutable).
+  const [confirmedPartial, setConfirmedPartial] = useState('');
+  const [unstablePartial, setUnstablePartial] = useState('');
+  const currentPartial = (confirmedPartial + ' ' + unstablePartial).trim();  // back-compat
   const [partialTranslation, setPartialTranslation] = useState('');
   const [status, setStatus] = useState<'listening' | 'processing' | 'silence'>('silence');
   const [wsConnected, setWsConnected] = useState(false);
+  // Phase 5b: RemoteASR (Colab GPU) connection state — riêng với wsConnected (FE↔BE).
+  const [asrConnection, setAsrConnection] = useState<'connected' | 'disconnected' | 'reconnecting' | null>(null);
+  // Phase 5d: rolling latency/drop metrics pushed every 5s by backend.
+  const [metrics, setMetrics] = useState<{
+    asr_finalize_ms: number | null;
+    mt_ms: number | null;
+    tts_ms: number | null;
+    dropped_chunks: number;
+    stale_drops: number;
+    partial_count: number;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const pendingMessages = useRef<string[]>([]);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -147,7 +161,15 @@ export function useTranslatorSocket(sessionId: string) {
         const data = JSON.parse(event.data as string);
         switch (data.type) {
           case 'partial_transcript':
-            setCurrentPartial(data.text);
+            // LocalAgreement-2: confirmed (locked prefix) + partial (unstable suffix).
+            // Fall back to splitting data.text if backend hasn't sent the new fields.
+            if (data.confirmed !== undefined || data.partial !== undefined) {
+              setConfirmedPartial(data.confirmed ?? '');
+              setUnstablePartial(data.partial ?? '');
+            } else {
+              setConfirmedPartial('');
+              setUnstablePartial(data.text ?? '');
+            }
             break;
           case 'final_transcript':
             setUtterances(prev => [...prev, {
@@ -157,7 +179,8 @@ export function useTranslatorSocket(sessionId: string) {
               targetText: '',
               targetReady: false,
             }]);
-            setCurrentPartial('');
+            setConfirmedPartial('');
+            setUnstablePartial('');
             setPartialTranslation('');
             break;
           case 'partial_translation':
@@ -189,6 +212,14 @@ export function useTranslatorSocket(sessionId: string) {
             break;
           case 'status':
             setStatus(data.state);
+            break;
+          case 'asr_connection':
+            // Phase 5b: RemoteASR GPU connection state (connected/disconnected/reconnecting).
+            setAsrConnection(data.state);
+            break;
+          case 'metrics':
+            // Phase 5d: rolling avg latency + drop counters (every 5s).
+            setMetrics(data);
             break;
         }
       } catch (e) {
@@ -226,5 +257,5 @@ export function useTranslatorSocket(sessionId: string) {
     }
   };
 
-  return { utterances, currentPartial, partialTranslation, status, wsConnected, errorMessage, sendAudioChunk, sendControl };
+  return { utterances, currentPartial, confirmedPartial, unstablePartial, partialTranslation, status, wsConnected, asrConnection, metrics, errorMessage, sendAudioChunk, sendControl };
 }

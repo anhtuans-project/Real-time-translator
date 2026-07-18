@@ -7,9 +7,13 @@ export default function App() {
   const {
     utterances,
     currentPartial,
+    confirmedPartial,
+    unstablePartial,
     partialTranslation,
     status,
     wsConnected,
+    asrConnection,
+    metrics,
     errorMessage,
     sendAudioChunk,
     sendControl
@@ -175,6 +179,26 @@ export default function App() {
         </div>
       )}
 
+      {/* Phase 5b: RemoteASR (Colab GPU) connection banner — riêng với FE↔BE ws. */}
+      {asrConnection && asrConnection !== 'connected' && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          backgroundColor: 'rgba(234, 179, 8, 0.15)',
+          border: '1px solid #eab308',
+          color: '#fde68a',
+          padding: '0.6rem 1rem',
+          borderRadius: '0.5rem',
+          marginBottom: '1rem',
+          fontSize: '0.8rem'
+        }}>
+          <span>⏳ {asrConnection === 'reconnecting'
+            ? 'Mất kết nối ASR GPU, đang kết nối lại…'
+            : 'ASR GPU đang ngắt — sẽ kết nối lại khi có audio.'}</span>
+        </div>
+      )}
+
       <div style={{
         display: 'grid',
         gridTemplateColumns: '1fr 1fr',
@@ -201,8 +225,10 @@ export default function App() {
               </div>
             ))}
             {currentPartial && (
-              <div style={{ padding: '0.75rem', backgroundColor: 'rgba(55, 65, 81, 0.5)', borderRadius: '0.5rem', fontStyle: 'italic', color: '#9ca3af' }}>
-                {currentPartial}...
+              <div style={{ padding: '0.75rem', backgroundColor: 'rgba(55, 65, 81, 0.5)', borderRadius: '0.5rem', color: '#9ca3af' }}>
+                <span style={{ color: '#e5e7eb' }}>{confirmedPartial}</span>
+                {unstablePartial && <span style={{ fontStyle: 'italic', color: '#9ca3af' }}> {unstablePartial}</span>}
+                <span style={{ color: '#6b7280' }}>…</span>
               </div>
             )}
             <div ref={sourceBottomRef} />
@@ -247,6 +273,33 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* Phase 5d: latency/drop metrics (rolling avg, push mỗi 5s). */}
+      {metrics && (
+        <div style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          marginTop: '0.75rem',
+          padding: '0.5rem 0.75rem',
+          backgroundColor: '#1f2937',
+          borderRadius: '0.5rem',
+          color: '#9ca3af',
+          fontSize: '0.75rem',
+          fontFamily: 'monospace'
+        }}>
+          <span>ASR {metrics.asr_finalize_ms != null ? `${Math.round(metrics.asr_finalize_ms)}ms` : '—'}</span>
+          <span>MT {metrics.mt_ms != null ? `${Math.round(metrics.mt_ms)}ms` : '—'}</span>
+          <span>TTS {metrics.tts_ms != null ? `${Math.round(metrics.tts_ms)}ms` : '—'}</span>
+          <span>partials {metrics.partial_count}</span>
+          {metrics.dropped_chunks > 0 && (
+            <span style={{ color: '#fca5a5' }}>⚠ dropped {metrics.dropped_chunks}</span>
+          )}
+          {metrics.stale_drops > 0 && (
+            <span style={{ color: '#fca5a5' }}>⚠ GPU stale {metrics.stale_drops}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

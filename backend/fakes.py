@@ -1,7 +1,7 @@
 import asyncio
 import random
 from typing import AsyncIterator
-from .interfaces import ASREngine, MTEngine, TTSEngine
+from .interfaces import ASREngine, MTEngine, TTSEngine, ASRFinal
 
 FIXTURE_VI = "Chúng tôi đề xuất mức đầu tư hai triệu đô la cho dự án này."
 FIXTURE_EN = "We propose a two million dollar investment for this project."
@@ -33,9 +33,10 @@ class FakeASR:
     def snapshot_audio(self) -> bytes:
         return b""
 
-    async def finalize(self, audio_bytes: bytes = b"") -> tuple[str, str]:
+    async def finalize(self, audio_bytes: bytes = b"", prompt: str = "") -> ASRFinal:
         await asyncio.sleep(0.3)
-        return self._text, self._target_lang
+        return ASRFinal(text=self._text, lang=self._target_lang,
+                        avg_logprob=-0.3, no_speech_prob=0.05, compression_ratio=1.2)
 
 
 class FakeMT:
