@@ -106,10 +106,11 @@ async def ws_endpoint(websocket: WebSocket, session_id: str):
 # Serve frontend static files if dist directory exists
 frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if frontend_dist.exists():
-    app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
-    
     @app.get("/{catchall:path}")
-    async def read_index(catchall: str):
+    async def serve_frontend(catchall: str):
+        file_path = frontend_dist / catchall
+        if catchall and file_path.is_file():
+            return FileResponse(file_path)
         return FileResponse(frontend_dist / "index.html")
 
 if __name__ == "__main__":
