@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+.venv/
+venv/
+ENV/
+
+# Claude Code
+.claude/
+
+# VS Code
+.vscode/
+
+# Models (downloaded)
+models/
+
+# Frontend
+frontend/node_modules/
+
+# Logs & test outputs
+*.log
+test_results*.txt
+backend_test.log
+
+# Audio recordings
+*.m4a
+*.wav
+*.mp3
+*.flac
+
+# Download scripts (one-off utilities)
+download_*.py
+
+# Plans
+plans/
+
+# Environment files (contain API keys)
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+backend/__pycache__/
+backend1/__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db

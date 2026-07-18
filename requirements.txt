@@ -1,0 +1,10 @@
+fastapi[standard]
+uvicorn[standard]
+numpy
+torch
+faster-whisper
+transformers
+sentencepiece
+httpx
+websockets
+python-dotenv

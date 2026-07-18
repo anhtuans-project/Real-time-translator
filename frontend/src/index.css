@@ -1,0 +1,10 @@
+body {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: system-ui, Avenir Next, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
