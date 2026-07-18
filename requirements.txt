@@ -3,6 +3,7 @@ fastapi[standard]
 uvicorn[standard]
 numpy
 torch                       # Silero VAD (torch.hub.load snakers4/silero-vad)
+torchaudio
 faster-whisper              # ASR local (nhánh local-CPU khi ASR_REMOTE_URL trống)
 httpx                       # Ollama /api/chat (llm_engine) + proxy Colab
 websockets                  # RemoteASR WS client (asr_remote)
