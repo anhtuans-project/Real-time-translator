@@ -11,9 +11,9 @@ logger = logging.getLogger("session_state")
 # Global state constants
 
 # Max utterance duration: ép chốt utterance khi kéo dài quá N giây mà VAD chưa báo
-# utterance_end (anti "câu dài vô tận" → finalize beam_size=5 trên cả đoạn = 7s+).
-# Mỗi chunk ≤4s + finalize beam_size=1 (~1s) + MT (~1.3s) ≈ <6s/utterance.
-MAX_UTT_S = 3.0
+# utterance_end. Lớn hơn = câu dài giữ nguyên 1 khối (đỡ garble/mất ngữ cảnh),
+# partial translation live vẫn cho cảm giác realtime. 6s = cân bằng.
+MAX_UTT_S = 6.0
 
 
 class SessionState:
@@ -42,6 +42,13 @@ class SessionState:
 
         # Backpressure tracking
         self._dropped_chunks = 0
+
+        # Partial translation preview: dịch partial transcript trong lúc nói
+        # (debounce + cancel-in-flight) -> UI hiện bản dịch dần, chốt ở utterance_end.
+        self._last_partial_text = ""
+        self._partial_debounce_task: asyncio.Task | None = None
+        self._partial_tr_task: asyncio.Task | None = None
+        self._partial_debounce_s = 0.7
 
         # Pipeline serialization: chỉ 1 utterance finalize+MT tại lúc (shared ASR
         # engine + CPU contention + Ollama single-model queue). Nhiều utterance
@@ -173,6 +180,62 @@ class SessionState:
             "type": "partial_transcript",
             "text": text
         })
+        # Schedule a live translation preview of the partial (replaceable).
+        self._last_partial_text = text
+        self._schedule_partial_translation()
+
+    def _schedule_partial_translation(self):
+        """(Re)start the debounce timer for a partial translation preview."""
+        if self._partial_debounce_task and not self._partial_debounce_task.done():
+            self._partial_debounce_task.cancel()
+        try:
+            self._partial_debounce_task = asyncio.create_task(
+                self._partial_debounce_then_translate())
+        except RuntimeError:
+            pass
+
+    async def _partial_debounce_then_translate(self):
+        try:
+            await asyncio.sleep(self._partial_debounce_s)
+        except asyncio.CancelledError:
+            return
+        text = self._last_partial_text
+        if not text.strip():
+            return
+        # Cancel any in-flight partial translation before starting a new one.
+        if self._partial_tr_task and not self._partial_tr_task.done():
+            self._partial_tr_task.cancel()
+        try:
+            self._partial_tr_task = asyncio.create_task(self._do_partial_translate(text))
+        except RuntimeError:
+            pass
+
+    async def _do_partial_translate(self, text: str):
+        """Translate a partial transcript and stream a replaceable preview."""
+        accumulated = ""
+        try:
+            async for delta in self.engines.mt.translate_stream(
+                text, self.source_lang, self.target_lang,
+                self.context_history, self.glossary
+            ):
+                accumulated += delta
+                if accumulated.strip():
+                    await self.manager.push(self.session_id, {
+                        "type": "partial_translation",
+                        "text": accumulated
+                    })
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            # Preview errors are non-fatal — the final translation is authoritative.
+            logger.warning("[%s] partial translate failed: %s", self.session_id, e)
+
+    def _cancel_partial_translation(self):
+        """Cancel any pending/in-flight partial translation preview."""
+        if self._partial_debounce_task and not self._partial_debounce_task.done():
+            self._partial_debounce_task.cancel()
+        if self._partial_tr_task and not self._partial_tr_task.done():
+            self._partial_tr_task.cancel()
 
     async def _finalize_and_pipeline(self, utt_id: str | None = None, audio_bytes: bytes = b""):
         """
@@ -191,6 +254,13 @@ class SessionState:
             try:
                 logger.info("[%s] _finalize_and_pipeline starting (utt_id=%s, %d bytes)",
                             self.session_id, utt_id, len(audio_bytes))
+
+                # Stop the live preview translation; the final translation below
+                # is authoritative. Clear the preview box in the UI.
+                self._cancel_partial_translation()
+                await self.manager.push(self.session_id, {
+                    "type": "partial_translation", "text": ""
+                })
 
                 # 1. Get final transcript from ASR (transcribe the snapshotted audio)
                 t_start = time.perf_counter()
@@ -251,6 +321,7 @@ class SessionState:
                 logger.exception("[%s] Pipeline failure: %s", self.session_id, e)
 
     async def shutdown(self):
+        self._cancel_partial_translation()
         if self._asr_started:
             logger.info("[%s] Shutdown: Finalizing pending utterance", self.session_id)
             utt_id = self._current_utt_id

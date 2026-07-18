@@ -26,7 +26,7 @@ class VAD:
     """
     Per-session VAD state manager. Handles windowing and state transitions.
     """
-    def __init__(self, vad_model: VADModel, silence_chunks_to_end: int = 6):
+    def __init__(self, vad_model: VADModel, silence_chunks_to_end: int = 30):
         self.vad_model = vad_model
         self.silence_chunks_to_end = silence_chunks_to_end
         self.silence_count = 0

@@ -16,6 +16,7 @@ export function useTranslatorSocket(sessionId: string) {
   const wsRef = useRef<WebSocket | null>(null);
   const [utterances, setUtterances] = useState<Utterance[]>([]);
   const [currentPartial, setCurrentPartial] = useState('');
+  const [partialTranslation, setPartialTranslation] = useState('');
   const [status, setStatus] = useState<'listening' | 'processing' | 'silence'>('silence');
   const [wsConnected, setWsConnected] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -104,6 +105,11 @@ export function useTranslatorSocket(sessionId: string) {
               targetReady: false,
             }]);
             setCurrentPartial('');
+            setPartialTranslation('');
+            break;
+          case 'partial_translation':
+            // Live preview translation (replaceable) — cleared on final_transcript.
+            setPartialTranslation(data.text);
             break;
           case 'translation_delta':
             setUtterances(prev => prev.map(u =>
@@ -156,5 +162,5 @@ export function useTranslatorSocket(sessionId: string) {
     }
   };
 
-  return { utterances, currentPartial, status, wsConnected, errorMessage, sendAudioChunk, sendControl };
+  return { utterances, currentPartial, partialTranslation, status, wsConnected, errorMessage, sendAudioChunk, sendControl };
 }

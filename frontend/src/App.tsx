@@ -7,6 +7,7 @@ export default function App() {
   const {
     utterances,
     currentPartial,
+    partialTranslation,
     status,
     wsConnected,
     errorMessage,
@@ -31,7 +32,7 @@ export default function App() {
 
   useEffect(() => {
     targetBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [utterances]);
+  }, [utterances, partialTranslation]);
 
   const handleToggleCapture = async () => {
     setMicError(null);
@@ -237,6 +238,11 @@ export default function App() {
                 <div style={{ fontSize: '1.125rem', color: '#dbeafe' }}>{u.targetText}</div>
               </div>
             ))}
+            {partialTranslation && (
+              <div style={{ padding: '0.75rem', backgroundColor: 'rgba(30, 58, 138, 0.15)', borderRadius: '0.5rem', fontStyle: 'italic', color: '#93c5fd' }}>
+                {partialTranslation}…
+              </div>
+            )}
             <div ref={targetBottomRef} />
           </div>
         </div>
