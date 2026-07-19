@@ -116,15 +116,44 @@ export default function App() {
 
         <div className="controls-group">
           {/* Language selection dropdown */}
-          <select
-            value={sourceLang}
-            onChange={(e) => setSourceLang(e.target.value as 'vi' | 'en')}
-            disabled={isCapturing}
-            className="lang-dropdown"
-          >
-            <option value="vi">🇻🇳 Tiếng Việt → English</option>
-            <option value="en">🇺🇸 English → Tiếng Việt</option>
-          </select>
+          <div className="dropdown">
+            <button 
+              className="lang-dropdown" 
+              style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'space-between',
+                gap: '0.5rem',
+                textAlign: 'left'
+              }}
+              disabled={isCapturing}
+            >
+              <span>{sourceLang === 'vi' ? '🇻🇳 Tiếng Việt → English' : '🇺🇸 English → Tiếng Việt'}</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.8 }}>
+                <path d="m6 9 6 6 6-6"/>
+              </svg>
+            </button>
+            <div className="dropdown-content">
+              <a 
+                href="#" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!isCapturing) setSourceLang('vi');
+                }}
+              >
+                🇻🇳 Tiếng Việt → English
+              </a>
+              <a 
+                href="#" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (!isCapturing) setSourceLang('en');
+                }}
+              >
+                🇺🇸 English → Tiếng Việt
+              </a>
+            </div>
+          </div>
 
           {/* Connection Pills */}
           <div className="status-pill" title="Websocket Connection">
