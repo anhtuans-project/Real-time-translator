@@ -28,6 +28,7 @@ export default function App() {
   const [micError, setMicError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'dark');
+  const [faceToFace, setFaceToFace] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('theme', theme);
@@ -308,13 +309,21 @@ export default function App() {
         </div>
 
         {/* Translation Column */}
-        <div className="glass-panel stream-column">
+        <div className={`glass-panel stream-column ${faceToFace ? 'flip' : ''}`}>
           <div className="column-header">
             <div className="column-icon">🌐</div>
             <h2 className="column-title">Bản dịch (Translation)</h2>
             <span className="column-subtitle">
               {sourceLang === 'vi' ? 'English 🇺🇸' : 'Tiếng Việt 🇻🇳'}
             </span>
+            <button
+              className={`flip-btn ${faceToFace ? 'on' : ''}`}
+              onClick={() => setFaceToFace((v) => !v)}
+              aria-pressed={faceToFace}
+              title="Xoay 180° cho người đối diện đọc"
+            >
+              🪞
+            </button>
           </div>
 
           <div className="message-feed">
