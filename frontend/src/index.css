@@ -136,6 +136,8 @@ body {
   position: relative;
   overflow: hidden;
   z-index: 1;
+  background-color: var(--bg-main);
+  background-image: var(--bg-gradient);
 }
 
 /* Ambient glow blobs */
@@ -354,36 +356,94 @@ body {
 }
 
 .mic-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1.25rem;
-  border-radius: 9999px;
-  border: none;
-  font-family: var(--font-family);
-  font-size: 0.875rem;
-  font-weight: 600;
+  position: relative;
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(45deg, var(--i), var(--j));
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  border-radius: 50px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  color: #ffffff;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+  overflow: visible;
+  z-index: 1;
+  border: none;
+  color: #ffffff; /* White text/icons by default */
 }
 
 .mic-toggle-btn.idle {
-  background: linear-gradient(135deg, var(--color-indigo) 0%, #4f46e5 100%);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  --i: #2563eb;
+  --j: #60a5fa;
 }
-.mic-toggle-btn.idle:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.45);
-}
+
 .mic-toggle-btn.active {
-  background: linear-gradient(135deg, var(--color-rose) 0%, #e11d48 100%);
-  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3);
-  animation: pulse-rose 2s infinite;
+  --i: #f43f5e;
+  --j: #e11d48;
 }
-.mic-toggle-btn.active:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(244, 63, 94, 0.45);
+
+.app-container.light-theme .mic-toggle-btn {
+  box-shadow: 0 10px 20px rgba(37, 99, 235, 0.2);
+}
+
+.mic-toggle-btn::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50px;
+  background: linear-gradient(45deg, var(--i), var(--j));
+  transition: 0.5s;
+  filter: blur(12px);
+  z-index: -2;
+  opacity: 0.3; /* Subtle glow by default */
+}
+
+.mic-toggle-btn:hover {
+  width: 150px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
+  color: #ffffff;
+}
+
+.mic-toggle-btn:hover::after {
+  opacity: 0.7; /* Stronger glow on hover */
+}
+
+.mic-toggle-btn svg {
+  transition: 0.5s;
+  transition-delay: 0.15s;
+  color: currentColor;
+  z-index: 2;
+  flex-shrink: 0;
+}
+
+.mic-toggle-btn:hover svg {
+  transform: scale(0);
+  opacity: 0;
+  transition-delay: 0s;
+}
+
+.mic-toggle-btn .title {
+  position: absolute;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transform: scale(0);
+  transition: 0.5s;
+  transition-delay: 0s;
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.mic-toggle-btn:hover .title {
+  transform: scale(1);
+  transition-delay: 0.15s;
 }
 
 /* Error/Notification Banners */
@@ -684,3 +744,102 @@ body {
     gap: 1rem;
   }
 }
+
+/* Light Theme Overrides */
+.app-container.light-theme {
+  --bg-main: #f8fafc;
+  --bg-gradient: radial-gradient(circle at 50% 0%, #e0e7ff 0%, #f1f5f9 50%, #f8fafc 100%);
+  --bg-panel: rgba(255, 255, 255, 0.7);
+  --bg-card: rgba(255, 255, 255, 0.85);
+  --bg-card-hover: rgba(255, 255, 255, 1);
+  --border-color: rgba(15, 23, 42, 0.08);
+  --border-focus: rgba(99, 102, 241, 0.3);
+  
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  
+  --shadow-lg: 0 10px 25px -5px rgba(15, 23, 42, 0.05), 0 8px 10px -6px rgba(15, 23, 42, 0.05);
+}
+
+.app-container.light-theme .brand-title {
+  background: linear-gradient(to right, #0f172a, #4f46e5);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.app-container.light-theme .ambient-glow {
+  opacity: 0.06;
+}
+
+.app-container.light-theme .status-pill {
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.app-container.light-theme .session-info {
+  background: rgba(15, 23, 42, 0.03);
+  border-color: rgba(15, 23, 42, 0.05);
+}
+
+.app-container.light-theme .theme-toggle-btn {
+  background: rgba(15, 23, 42, 0.04);
+  border-color: rgba(15, 23, 42, 0.08);
+}
+.app-container.light-theme .theme-toggle-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+  border-color: rgba(15, 23, 42, 0.15);
+}
+
+.app-container.light-theme .dropdown-content {
+  background: white;
+  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.app-container.light-theme .dropdown-content a {
+  color: #374151;
+}
+.app-container.light-theme .dropdown-content a:hover {
+  background: #f1f5f9;
+}
+
+.app-container.light-theme .lang-dropdown {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(15, 23, 42, 0.12);
+  color: #0f172a;
+}
+.app-container.light-theme .lang-dropdown:hover {
+  border-color: rgba(15, 23, 42, 0.2);
+}
+
+.app-container.light-theme .partial-card {
+  background: rgba(15, 23, 42, 0.01);
+  border-color: rgba(15, 23, 42, 0.12);
+}
+
+/* Theme Toggle Button Base Styles */
+.theme-toggle-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  transition: all 0.3s ease;
+}
+.theme-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
+}
+
+/* Utterance Text Pending Style */
+.utterance-text.pending {
+  color: var(--text-secondary);
+  opacity: 0.65;
+}
+

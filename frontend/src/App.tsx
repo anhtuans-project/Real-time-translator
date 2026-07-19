@@ -27,6 +27,11 @@ export default function App() {
   const [sourceLang, setSourceLang] = useState<'vi' | 'en'>('vi');
   const [micError, setMicError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => (localStorage.getItem('theme') as 'dark' | 'light') || 'dark');
+
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   const sourceBottomRef = useRef<HTMLDivElement>(null);
   const targetBottomRef = useRef<HTMLDivElement>(null);
@@ -75,7 +80,7 @@ export default function App() {
   const errorText = micError ?? errorMessage;
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${theme === 'light' ? 'light-theme' : ''}`}>
       {/* Background ambient glowing shapes */}
       <div className="ambient-glow ambient-glow-indigo" />
       <div className="ambient-glow ambient-glow-emerald" />
@@ -83,13 +88,6 @@ export default function App() {
       {/* Main Glass Header */}
       <header className="glass-panel app-header">
         <div className="brand-section">
-          <div className="brand-logo">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#fff' }}>
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" x2="12" y1="19" y2="22" />
-            </svg>
-          </div>
           <div className="brand-title-group">
             <h1 className="brand-title">VocalSync AI</h1>
             <div className="session-info">
@@ -178,6 +176,31 @@ export default function App() {
             </div>
           )}
 
+          {/* Theme Toggle Button */}
+          <button 
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="theme-toggle-btn"
+            title={theme === 'dark' ? 'Chuyển sang Giao diện Sáng' : 'Chuyển sang Giao diện Tối'}
+          >
+            {theme === 'dark' ? (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2" />
+                <path d="M12 20v2" />
+                <path d="m4.93 4.93 1.41 1.41" />
+                <path d="m17.66 17.66 1.41 1.41" />
+                <path d="M2 12h2" />
+                <path d="M20 12h2" />
+                <path d="m6.34 17.66-1.41 1.41" />
+                <path d="m19.07 4.93-1.41 1.41" />
+              </svg>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+              </svg>
+            )}
+          </button>
+
           {/* Beautiful pulsing microphone trigger */}
           <button
             onClick={handleToggleCapture}
@@ -188,7 +211,7 @@ export default function App() {
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="4" y="4" width="16" height="16" rx="2" />
                 </svg>
-                <span>Stop Mic</span>
+                <span className="title">Stop Mic</span>
               </>
             ) : (
               <>
@@ -197,7 +220,7 @@ export default function App() {
                   <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                   <line x1="12" x2="12" y1="19" y2="22" />
                 </svg>
-                <span>Start Mic</span>
+                <span className="title">Start Mic</span>
               </>
             )}
           </button>
@@ -303,7 +326,7 @@ export default function App() {
                     <span className="utterance-status translating">đang dịch…</span>
                   )}
                 </div>
-                <div className="utterance-text" style={{ color: u.targetReady ? 'var(--text-primary)' : '#cbd5e1' }}>
+                <div className={`utterance-text ${u.targetReady ? '' : 'pending'}`}>
                   {u.targetText}
                 </div>
               </div>
