@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
@@ -15,7 +16,8 @@ from .session_state import SessionState
 # CWD or any stale OS env var from a previous shell `set`/`export`).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
-logging.basicConfig(level=logging.DEBUG)
+# Production mặc định INFO; set LOG_LEVEL=DEBUG để debug chi tiết (mỗi chunk/request).
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
 # Global engines - loaded ONCE at startup
@@ -28,7 +30,6 @@ sessions: dict[str, SessionState] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global engines
-    import os
     remote = os.getenv("ASR_REMOTE_URL", "")
     logger.info("Loading AI engines at startup... (ASR_REMOTE_URL=%s)",
                 remote if remote else "<empty -> local CPU ASR>")

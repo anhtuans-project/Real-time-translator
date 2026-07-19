@@ -41,8 +41,8 @@ def build_engines() -> Engines:
             vad=VADModel(),
         )
 
-    # Remote ASR mode: offload ASR to a GPU service (e.g. Colab notebook
-    # colab_asr_gpu.ipynb) via WebSocket. VAD/MT/TTS still run locally.
+    # Remote ASR mode: offload ASR to a GPU server (e.g. gpu_cloud/asr_server.py
+    # on a GPU VPS) via WebSocket. VAD/MT/TTS still run locally.
     remote_asr_url = os.getenv("ASR_REMOTE_URL")
     if remote_asr_url:
         from .asr_remote import RemoteASR

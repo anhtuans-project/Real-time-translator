@@ -94,9 +94,9 @@ export default function App() {
             <h1 className="brand-title">VocalSync AI</h1>
             <div className="session-info">
               <span>ID: {sessionId}</span>
-              <button 
-                onClick={handleCopySessionId} 
-                className="session-copy-btn" 
+              <button
+                onClick={handleCopySessionId}
+                className="session-copy-btn"
                 title="Copy Session ID"
               >
                 {copied ? (
@@ -133,9 +133,8 @@ export default function App() {
           </div>
 
           <div className="status-pill" title="System state">
-            <div className={`status-dot ${
-              status === 'listening' ? 'active' : status === 'processing' ? 'pending' : 'inactive'
-            }`} />
+            <div className={`status-dot ${status === 'listening' ? 'active' : status === 'processing' ? 'pending' : 'inactive'
+              }`} />
             <span>{status}</span>
           </div>
 
@@ -195,7 +194,7 @@ export default function App() {
         </div>
       )}
 
-      {/* GPU state banner */}
+      {/* Phase 5b: RemoteASR (GPU server) connection banner — riêng với FE↔BE ws. */}
       {asrConnection && asrConnection !== 'connected' && (
         <div className="alert-toast alert-toast-warning">
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -224,7 +223,7 @@ export default function App() {
               {sourceLang === 'vi' ? 'Tiếng Việt 🇻🇳' : 'English 🇺🇸'}
             </span>
           </div>
-          
+
           <div className="message-feed">
             {utterances.map((u) => (
               <div key={u.uttId} className="utterance-card">
@@ -236,7 +235,7 @@ export default function App() {
                 <div className="utterance-text">{u.sourceText}</div>
               </div>
             ))}
-            
+
             {currentPartial && (
               <div className="partial-card">
                 <span className="partial-text-confirmed">{confirmedPartial}</span>
@@ -307,31 +306,28 @@ export default function App() {
             </svg>
             <h3 className="telemetry-title">Hệ thống đo lường (Telemetry Metrics)</h3>
           </div>
-          
+
           <div className="telemetry-grid">
             <div className="telemetry-item">
               <span className="telemetry-label">Độ trễ ASR</span>
-              <span className={`telemetry-value ${
-                metrics.asr_finalize_ms == null ? '' : metrics.asr_finalize_ms < 300 ? 'good' : 'warn'
-              }`}>
+              <span className={`telemetry-value ${metrics.asr_finalize_ms == null ? '' : metrics.asr_finalize_ms < 300 ? 'good' : 'warn'
+                }`}>
                 {metrics.asr_finalize_ms != null ? `${Math.round(metrics.asr_finalize_ms)}ms` : '—'}
               </span>
             </div>
 
             <div className="telemetry-item">
               <span className="telemetry-label">Dịch thuật MT</span>
-              <span className={`telemetry-value ${
-                metrics.mt_ms == null ? '' : metrics.mt_ms < 200 ? 'good' : 'warn'
-              }`}>
+              <span className={`telemetry-value ${metrics.mt_ms == null ? '' : metrics.mt_ms < 200 ? 'good' : 'warn'
+                }`}>
                 {metrics.mt_ms != null ? `${Math.round(metrics.mt_ms)}ms` : '—'}
               </span>
             </div>
 
             <div className="telemetry-item">
               <span className="telemetry-label">Phát âm TTS</span>
-              <span className={`telemetry-value ${
-                metrics.tts_ms == null ? '' : metrics.tts_ms < 400 ? 'good' : 'warn'
-              }`}>
+              <span className={`telemetry-value ${metrics.tts_ms == null ? '' : metrics.tts_ms < 400 ? 'good' : 'warn'
+                }`}>
                 {metrics.tts_ms != null ? `${Math.round(metrics.tts_ms)}ms` : '—'}
               </span>
             </div>

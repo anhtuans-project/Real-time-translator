@@ -1,6 +1,6 @@
 """
 RemoteASR — ASR engine that streams PCM16 audio to a remote GPU WebSocket ASR
-service (e.g. the Colab notebook colab_asr_gpu.ipynb) and surfaces partial
+service (e.g. gpu_cloud/asr_server.py on a GPU VPS) and surfaces partial
 transcripts via the same callback contract as the local faster-whisper engines.
 
 DESIGN GOAL: never block the session processing loop on the network. The local
@@ -40,7 +40,7 @@ from .interfaces import ASREngine, ASRFinal
 logger = logging.getLogger("asr_remote")
 
 CONNECT_TIMEOUT = 15  # seconds
-# beam_size=1 greedy: finalize ~2-5s với buffer 6s trên T4 (Colab transcribe cả buffer +
+# beam_size=1 greedy: finalize ~2-5s với buffer 6s trên GPU (server transcribe cả buffer +
 # fallback về partial nếu rỗng). 30s headroom an toàn; nếu hang thì block tối đa 30s.
 FINALIZE_TIMEOUT = 30  # seconds
 
@@ -236,7 +236,7 @@ class RemoteASR(ASREngine):
                 if t == "partial":
                     text = data.get("text", "")
                     if text and self._result_callback:
-                        # Phase 5+: forward confidence (Colab gửi kèm) để backend filter
+                        # Phase 5+: forward confidence (GPU server gửi kèm) để backend filter
                         # hallucinated partial trên silence/low-info audio.
                         lp = float(data.get("avg_logprob", 0.0))
                         nsp = float(data.get("no_speech_prob", 0.0))
@@ -251,7 +251,7 @@ class RemoteASR(ASREngine):
                         logger.warning("RemoteASR final without pending future")
                         continue
                     if not fut.done():
-                        # Phase 4: Colab server gửi kèm confidence fields (forward-compat:
+                        # Phase 4: GPU server gửi kèm confidence fields (forward-compat:
                         # server cũ không gửi -> .get() default).
                         fut.set_result(ASRFinal(
                             text=data.get("text", ""),
@@ -290,7 +290,7 @@ class RemoteASR(ASREngine):
         return b""
 
     async def finalize(self, audio_bytes: bytes = b"", prompt: str = "") -> ASRFinal:
-        # prompt (init_prompt) không được thread sang Colab server (protocol chưa có);
+        # prompt (init_prompt) không được thread sang GPU server (protocol chưa có);
         # ship OFF mặc định nên prompt="" luôn. Hook sẵn cho follow-up.
         if not await self._ensure_connected_blocking():
             logger.error("RemoteASR not connected at finalize; returning empty.")

@@ -21,7 +21,7 @@ class OllamaTranslationEngine(MTEngine):
     Avoids the need for local CUDA setup by offloading to Ollama server.
     """
     def __init__(self, model_name: str | None = None, base_url: str | None = None):
-        # Override via env so the local backend can point at a Colab GPU Ollama
+        # Override via env so the local backend can point at a GPU server Ollama
         # proxy (MT_BASE_URL) + a bigger model (MT_MODEL). Defaults keep the
         # original local-CPU behaviour.
         self.model_name = model_name or os.getenv("MT_MODEL", "qwen2.5:1.5b")
