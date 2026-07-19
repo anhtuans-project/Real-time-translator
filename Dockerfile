@@ -47,6 +47,12 @@ RUN mkdir -p backend/models && \
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
+# Pre-cache Silero VAD model. vad.py loads it via torch.hub.load() at runtime,
+# which would download from GitHub on every cold start — fragile under GitHub
+# rate-limiting from cloud IPs (can crash-loop the container). Bake it into the
+# image's torch hub cache so startup never needs the network for VAD.
+RUN python -c "import torch; torch.hub.load(repo_or_dir='snakers4/silero-vad', model='silero_vad', trust_repo=True); print('silero-vad cached')"
+
 # Copy frontend static build from Node stage
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 

@@ -27,7 +27,7 @@ export function useTranslatorSocket(sessionId: string) {
   const [partialTranslation, setPartialTranslation] = useState('');
   const [status, setStatus] = useState<'listening' | 'processing' | 'silence'>('silence');
   const [wsConnected, setWsConnected] = useState(false);
-  // Phase 5b: RemoteASR (Colab GPU) connection state — riêng với wsConnected (FE↔BE).
+  // Phase 5b: RemoteASR (GPU server) connection state — riêng với wsConnected (FE↔BE).
   const [asrConnection, setAsrConnection] = useState<'connected' | 'disconnected' | 'reconnecting' | null>(null);
   // Phase 5d: rolling latency/drop metrics pushed every 5s by backend.
   const [metrics, setMetrics] = useState<{
@@ -127,6 +127,7 @@ export function useTranslatorSocket(sessionId: string) {
     retryCountRef.current += 1;
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return;   // stale WS (đã bị thay thế)
       console.log('[WS] Connected');
       retryCountRef.current = 0;
       setWsConnected(true);
@@ -136,6 +137,13 @@ export function useTranslatorSocket(sessionId: string) {
 
     ws.onclose = (ev) => {
       console.log(`[WS] Disconnected (code=${ev.code}, reason=${ev.reason})`);
+      // Nếu WS này đã bị thay thế bởi WS mới (StrictMode remount / backend supersede),
+      // đừng đụng vào state — WS mới đang giữ wsConnected=true. Nếu vẫn set false ở đây,
+      // onclose của WS CŨ chạy SAU onopen của WS MỚI → trạng thái cuối thành false →
+      // hiển thị sai "Disconnected" dù WS mới vẫn đang kết nối.
+      if (wsRef.current !== ws) {
+        return;
+      }
       setWsConnected(false);
       // code 1000 = close chủ ý (unmount/StrictMode cleanup, hoặc backend supersede
       // khi WS mới cùng session_id đến). KHÔNG reconnect — reconnect ở đây sẽ tạo WS
@@ -159,11 +167,13 @@ export function useTranslatorSocket(sessionId: string) {
     };
 
     ws.onerror = (err) => {
+      if (wsRef.current !== ws) return;   // stale WS
       console.error('[WS] Error:', err);
       setErrorMessage('Lỗi kết nối tới server.');
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return;   // stale WS — bỏ qua message của WS cũ
       // Binary frame = PCM16 TTS audio from the backend.
       if (event.data instanceof ArrayBuffer) {
         playPcm(event.data);

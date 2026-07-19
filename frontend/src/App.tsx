@@ -179,7 +179,7 @@ export default function App() {
         </div>
       )}
 
-      {/* Phase 5b: RemoteASR (Colab GPU) connection banner — riêng với FE↔BE ws. */}
+      {/* Phase 5b: RemoteASR (GPU server) connection banner — riêng với FE↔BE ws. */}
       {asrConnection && asrConnection !== 'connected' && (
         <div style={{
           display: 'flex',

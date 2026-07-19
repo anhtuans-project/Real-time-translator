@@ -526,13 +526,13 @@ class SessionState:
                 if not final_text or not final_text.strip():
                     # Phase 3: log micro-utterance (cough/click) riêng để dễ phân biệt
                     # với empty final do bug. Empty final đã có Phase 0 fallback phía
-                    # Colab; rỗng ở đây = không có partial nào cả (micro-burst).
+                    # GPU server; rỗng ở đây = không có partial nào cả (micro-burst).
                     if micro:
                         logger.info("[%s] Drop micro-utterance (empty final)", self.session_id)
                     return
 
                 # Phase 4d: drop low-confidence final (silence / decode kém tự tin). Fallback
-                # partial phía Colab set confidence neutral (nsp=0,lp=0) nên không bị drop ở đây.
+                # partial phía GPU server set confidence neutral (nsp=0,lp=0) nên không bị drop ở đây.
                 if res.no_speech_prob > 0.8 or res.avg_logprob < -1.2:
                     logger.info("[%s] Drop low-confidence final (nsp=%.2f lp=%.2f): %r",
                                 self.session_id, res.no_speech_prob, res.avg_logprob, final_text[:80])
