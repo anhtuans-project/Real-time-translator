@@ -26,6 +26,7 @@ export default function App() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [sourceLang, setSourceLang] = useState<'vi' | 'en'>('vi');
   const [micError, setMicError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const sourceBottomRef = useRef<HTMLDivElement>(null);
   const targetBottomRef = useRef<HTMLDivElement>(null);
@@ -64,209 +65,230 @@ export default function App() {
     setMicError(null);
   };
 
+  const handleCopySessionId = () => {
+    navigator.clipboard.writeText(sessionId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   const showError = micError || errorMessage;
   const errorText = micError ?? errorMessage;
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      backgroundColor: '#111827',
-      color: 'white',
-      padding: '2rem',
-      fontFamily: 'sans-serif',
-      boxSizing: 'border-box'
-    }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '2rem'
-      }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold', margin: 0 }}>Real-time Translator (React + Vite)</h1>
-          <p style={{ color: '#9ca3af', fontSize: '0.875rem', margin: '4px 0 0 0' }}>Session: {sessionId}</p>
+    <div className="app-container">
+      {/* Background ambient glowing shapes */}
+      <div className="ambient-glow ambient-glow-indigo" />
+      <div className="ambient-glow ambient-glow-emerald" />
+
+      {/* Main Glass Header */}
+      <header className="glass-panel app-header">
+        <div className="brand-section">
+          <div className="brand-logo">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: '#fff' }}>
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" x2="12" y1="19" y2="22" />
+            </svg>
+          </div>
+          <div className="brand-title-group">
+            <h1 className="brand-title">VocalSync AI</h1>
+            <div className="session-info">
+              <span>ID: {sessionId}</span>
+              <button 
+                onClick={handleCopySessionId} 
+                className="session-copy-btn" 
+                title="Copy Session ID"
+              >
+                {copied ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--color-emerald)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+        <div className="controls-group">
+          {/* Language selection dropdown */}
           <select
             value={sourceLang}
             onChange={(e) => setSourceLang(e.target.value as 'vi' | 'en')}
             disabled={isCapturing}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '0.5rem',
-              border: '1px solid #4b5563',
-              backgroundColor: '#374151',
-              color: 'white',
-              fontSize: '0.875rem',
-              cursor: isCapturing ? 'not-allowed' : 'pointer',
-              opacity: isCapturing ? 0.6 : 1
-            }}
+            className="lang-dropdown"
           >
             <option value="vi">🇻🇳 Tiếng Việt → English</option>
             <option value="en">🇺🇸 English → Tiếng Việt</option>
           </select>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <div style={{
-              width: '12px',
-              height: '12px',
-              borderRadius: '50%',
-              backgroundColor: wsConnected ? '#22c55e' : '#ef4444',
-              boxShadow: wsConnected ? '0 0 8px #22c55e' : '0 0 8px #ef4444'
-            }} />
-            <span style={{ textTransform: 'capitalize', fontSize: '0.875rem' }}>{wsConnected ? 'Connected' : 'Disconnected'}</span>
+
+          {/* Connection Pills */}
+          <div className="status-pill" title="Websocket Connection">
+            <div className={`status-dot ${wsConnected ? 'active' : 'inactive'}`} />
+            <span>Server</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <div style={{
-              width: '12px',
-              height: '12px',
-              borderRadius: '50%',
-              backgroundColor: status === 'listening' ? '#22c55e' : status === 'processing' ? '#eab308' : '#6b7280',
-              boxShadow: status === 'listening' ? '0 0 8px #22c55e' : 'none'
-            }} />
-            <span style={{ textTransform: 'capitalize', fontSize: '0.875rem' }}>{status}</span>
+
+          <div className="status-pill" title="System state">
+            <div className={`status-dot ${
+              status === 'listening' ? 'active' : status === 'processing' ? 'pending' : 'inactive'
+            }`} />
+            <span>{status}</span>
           </div>
+
+          {/* Waveform indicator when listening */}
+          {isCapturing && status === 'listening' && (
+            <div className="wave-indicator">
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+              <div className="wave-bar" />
+            </div>
+          )}
+
+          {/* Beautiful pulsing microphone trigger */}
           <button
             onClick={handleToggleCapture}
-            style={{
-              padding: '0.5rem 1.5rem',
-              borderRadius: '9999px',
-              border: 'none',
-              cursor: 'pointer',
-              fontWeight: 'medium',
-              backgroundColor: isCapturing ? '#ef4444' : '#3b82f6',
-              color: 'white',
-              transition: 'background 0.2s'
-            }}
+            className={`mic-toggle-btn ${isCapturing ? 'active' : 'idle'}`}
           >
-            {isCapturing ? 'Stop Mic' : 'Start Mic'}
+            {isCapturing ? (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                </svg>
+                <span>Stop Mic</span>
+              </>
+            ) : (
+              <>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+                <span>Start Mic</span>
+              </>
+            )}
           </button>
         </div>
-      </div>
+      </header>
 
+      {/* Error Toasts */}
       {showError && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '1rem',
-          backgroundColor: 'rgba(239, 68, 68, 0.15)',
-          border: '1px solid #ef4444',
-          color: '#fca5a5',
-          padding: '0.75rem 1rem',
-          borderRadius: '0.5rem',
-          marginBottom: '1rem',
-          fontSize: '0.875rem'
-        }}>
-          <span>⚠ {errorText}</span>
+        <div className="alert-toast alert-toast-danger">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" x2="12" y1="8" y2="12" />
+              <line x1="12" x2="12.01" y1="16" y2="16" />
+            </svg>
+            <span>{errorText}</span>
+          </div>
           {micError && (
-            <button
-              onClick={dismissError}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: '#fca5a5',
-                cursor: 'pointer',
-                fontSize: '0.8rem',
-                textDecoration: 'underline'
-              }}
-            >
+            <button onClick={dismissError} className="alert-close-btn">
               Đóng
             </button>
           )}
         </div>
       )}
 
-      {/* Phase 5b: RemoteASR (Colab GPU) connection banner — riêng với FE↔BE ws. */}
+      {/* GPU state banner */}
       {asrConnection && asrConnection !== 'connected' && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.5rem',
-          backgroundColor: 'rgba(234, 179, 8, 0.15)',
-          border: '1px solid #eab308',
-          color: '#fde68a',
-          padding: '0.6rem 1rem',
-          borderRadius: '0.5rem',
-          marginBottom: '1rem',
-          fontSize: '0.8rem'
-        }}>
-          <span>⏳ {asrConnection === 'reconnecting'
-            ? 'Mất kết nối ASR GPU, đang kết nối lại…'
-            : 'ASR GPU đang ngắt — sẽ kết nối lại khi có audio.'}</span>
+        <div className="alert-toast alert-toast-warning">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              <line x1="12" x2="12" y1="9" y2="13" />
+              <line x1="12" x2="12.01" y1="17" y2="17" />
+            </svg>
+            <span>
+              {asrConnection === 'reconnecting'
+                ? 'Mất kết nối ASR GPU, đang kết nối lại…'
+                : 'ASR GPU đang ngắt — sẽ kết nối lại khi có audio.'}
+            </span>
+          </div>
         </div>
       )}
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1fr 1fr',
-        gap: '2rem',
-        flex: 1,
-        overflow: 'hidden'
-      }}>
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: '#1f2937',
-          borderRadius: '0.75rem',
-          padding: '1.5rem',
-          overflowY: 'auto'
-        }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'semibold', marginBottom: '1rem', color: '#d1d5db', borderBottom: '1px solid #374151', paddingBottom: '0.5rem' }}>
-            Source ({sourceLang === 'vi' ? 'Tiếng Việt' : 'English'})
-          </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      {/* Main Workspace Panels */}
+      <div className="workspace-grid">
+        {/* Source Column */}
+        <div className="glass-panel stream-column">
+          <div className="column-header">
+            <div className="column-icon">🎙</div>
+            <h2 className="column-title">Nguồn (Source)</h2>
+            <span className="column-subtitle">
+              {sourceLang === 'vi' ? 'Tiếng Việt 🇻🇳' : 'English 🇺🇸'}
+            </span>
+          </div>
+          
+          <div className="message-feed">
             {utterances.map((u) => (
-              <div key={u.uttId} style={{ padding: '0.75rem', backgroundColor: '#374151', borderRadius: '0.5rem' }}>
-                <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.25rem', fontWeight: 'bold', textTransform: 'uppercase' }}>{u.sourceLang}</div>
-                <div style={{ fontSize: '1.125rem' }}>{u.sourceText}</div>
+              <div key={u.uttId} className="utterance-card">
+                <div className="utterance-card-header">
+                  <span className={`lang-badge ${u.sourceLang}`}>
+                    {u.sourceLang}
+                  </span>
+                </div>
+                <div className="utterance-text">{u.sourceText}</div>
               </div>
             ))}
+            
             {currentPartial && (
-              <div style={{ padding: '0.75rem', backgroundColor: 'rgba(55, 65, 81, 0.5)', borderRadius: '0.5rem', color: '#9ca3af' }}>
-                <span style={{ color: '#e5e7eb' }}>{confirmedPartial}</span>
-                {unstablePartial && <span style={{ fontStyle: 'italic', color: '#9ca3af' }}> {unstablePartial}</span>}
-                <span style={{ color: '#6b7280' }}>…</span>
+              <div className="partial-card">
+                <span className="partial-text-confirmed">{confirmedPartial}</span>
+                {unstablePartial && (
+                  <span className="partial-text-unstable"> {unstablePartial}</span>
+                )}
+                <span className="partial-dots">
+                  <span className="partial-dot" />
+                  <span className="partial-dot" />
+                  <span className="partial-dot" />
+                </span>
               </div>
             )}
             <div ref={sourceBottomRef} />
           </div>
         </div>
 
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: '#1f2937',
-          borderRadius: '0.75rem',
-          padding: '1.5rem',
-          overflowY: 'auto'
-        }}>
-          <h2 style={{ fontSize: '1.125rem', fontWeight: 'semibold', marginBottom: '1rem', color: '#d1d5db', borderBottom: '1px solid #374151', paddingBottom: '0.5rem' }}>
-            Translation ({sourceLang === 'vi' ? 'English' : 'Tiếng Việt'})
-          </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+        {/* Translation Column */}
+        <div className="glass-panel stream-column">
+          <div className="column-header">
+            <div className="column-icon">🌐</div>
+            <h2 className="column-title">Bản dịch (Translation)</h2>
+            <span className="column-subtitle">
+              {sourceLang === 'vi' ? 'English 🇺🇸' : 'Tiếng Việt 🇻🇳'}
+            </span>
+          </div>
+
+          <div className="message-feed">
             {utterances.map((u) => (
-              <div key={u.uttId} style={{
-                padding: '0.75rem',
-                backgroundColor: 'rgba(30, 58, 138, 0.3)',
-                border: '1px solid rgba(30, 64, 175, 0.5)',
-                borderRadius: '0.5rem',
-                opacity: u.targetReady ? 1 : 0.6
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.25rem' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#60a5fa', fontWeight: 'bold', textTransform: 'uppercase' }}>{sourceLang === 'vi' ? 'en' : 'vi'}</div>
+              <div key={u.uttId} className="utterance-card">
+                <div className="utterance-card-header">
+                  <span className={`lang-badge ${sourceLang === 'vi' ? 'en' : 'vi'}`}>
+                    {sourceLang === 'vi' ? 'en' : 'vi'}
+                  </span>
                   {!u.targetReady && (
-                    <div style={{ fontSize: '0.7rem', color: '#93c5fd', fontStyle: 'italic' }}>đang dịch…</div>
+                    <span className="utterance-status translating">đang dịch…</span>
                   )}
                 </div>
-                <div style={{ fontSize: '1.125rem', color: '#dbeafe' }}>{u.targetText}</div>
+                <div className="utterance-text" style={{ color: u.targetReady ? 'var(--text-primary)' : '#cbd5e1' }}>
+                  {u.targetText}
+                </div>
               </div>
             ))}
+
             {partialTranslation && (
-              <div style={{ padding: '0.75rem', backgroundColor: 'rgba(30, 58, 138, 0.15)', borderRadius: '0.5rem', fontStyle: 'italic', color: '#93c5fd' }}>
-                {partialTranslation}…
+              <div className="partial-card">
+                <span className="partial-text-unstable">{partialTranslation}</span>
+                <span className="partial-dots">
+                  <span className="partial-dot" />
+                  <span className="partial-dot" />
+                  <span className="partial-dot" />
+                </span>
               </div>
             )}
             <div ref={targetBottomRef} />
@@ -274,31 +296,66 @@ export default function App() {
         </div>
       </div>
 
-      {/* Phase 5d: latency/drop metrics (rolling avg, push mỗi 5s). */}
+      {/* Telemetry Metrics Panel */}
       {metrics && (
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          marginTop: '0.75rem',
-          padding: '0.5rem 0.75rem',
-          backgroundColor: '#1f2937',
-          borderRadius: '0.5rem',
-          color: '#9ca3af',
-          fontSize: '0.75rem',
-          fontFamily: 'monospace'
-        }}>
-          <span>ASR {metrics.asr_finalize_ms != null ? `${Math.round(metrics.asr_finalize_ms)}ms` : '—'}</span>
-          <span>MT {metrics.mt_ms != null ? `${Math.round(metrics.mt_ms)}ms` : '—'}</span>
-          <span>TTS {metrics.tts_ms != null ? `${Math.round(metrics.tts_ms)}ms` : '—'}</span>
-          <span>partials {metrics.partial_count}</span>
-          {metrics.dropped_chunks > 0 && (
-            <span style={{ color: '#fca5a5' }}>⚠ dropped {metrics.dropped_chunks}</span>
-          )}
-          {metrics.stale_drops > 0 && (
-            <span style={{ color: '#fca5a5' }}>⚠ GPU stale {metrics.stale_drops}</span>
-          )}
-        </div>
+        <footer className="glass-panel telemetry-panel">
+          <div className="telemetry-header">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" x2="18" y1="20" y2="10" />
+              <line x1="12" x2="12" y1="20" y2="4" />
+              <line x1="6" x2="6" y1="20" y2="14" />
+            </svg>
+            <h3 className="telemetry-title">Hệ thống đo lường (Telemetry Metrics)</h3>
+          </div>
+          
+          <div className="telemetry-grid">
+            <div className="telemetry-item">
+              <span className="telemetry-label">Độ trễ ASR</span>
+              <span className={`telemetry-value ${
+                metrics.asr_finalize_ms == null ? '' : metrics.asr_finalize_ms < 300 ? 'good' : 'warn'
+              }`}>
+                {metrics.asr_finalize_ms != null ? `${Math.round(metrics.asr_finalize_ms)}ms` : '—'}
+              </span>
+            </div>
+
+            <div className="telemetry-item">
+              <span className="telemetry-label">Dịch thuật MT</span>
+              <span className={`telemetry-value ${
+                metrics.mt_ms == null ? '' : metrics.mt_ms < 200 ? 'good' : 'warn'
+              }`}>
+                {metrics.mt_ms != null ? `${Math.round(metrics.mt_ms)}ms` : '—'}
+              </span>
+            </div>
+
+            <div className="telemetry-item">
+              <span className="telemetry-label">Phát âm TTS</span>
+              <span className={`telemetry-value ${
+                metrics.tts_ms == null ? '' : metrics.tts_ms < 400 ? 'good' : 'warn'
+              }`}>
+                {metrics.tts_ms != null ? `${Math.round(metrics.tts_ms)}ms` : '—'}
+              </span>
+            </div>
+
+            <div className="telemetry-item">
+              <span className="telemetry-label">Partials</span>
+              <span className="telemetry-value">{metrics.partial_count}</span>
+            </div>
+
+            <div className="telemetry-item">
+              <span className="telemetry-label">Dropped Chunks</span>
+              <span className={`telemetry-value ${metrics.dropped_chunks > 0 ? 'error' : ''}`}>
+                {metrics.dropped_chunks}
+              </span>
+            </div>
+
+            <div className="telemetry-item">
+              <span className="telemetry-label">GPU Stale Drops</span>
+              <span className={`telemetry-value ${metrics.stale_drops > 0 ? 'error' : ''}`}>
+                {metrics.stale_drops}
+              </span>
+            </div>
+          </div>
+        </footer>
       )}
     </div>
   );
